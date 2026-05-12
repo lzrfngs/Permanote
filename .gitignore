@@ -17,3 +17,7 @@ vite.config.ts.timestamp-*
 # OS
 Thumbs.db
 desktop.ini
+
+# Build logs
+build-out.log
+dev-out.log

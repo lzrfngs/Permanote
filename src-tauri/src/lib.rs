@@ -1,4 +1,5 @@
 mod index;
+mod settings;
 mod vault;
 mod watcher;
 
@@ -106,6 +107,25 @@ fn set_todo_state(
 }
 
 #[tauri::command]
+fn set_todo_due(
+    date: String,
+    line: usize,
+    due: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    vault::set_todo_due(&date, line, due.as_deref())?;
+    if let Ok(stored) = vault::read_day(&date) {
+        let _ = state.index.index_day(&date, &stored);
+        state
+            .snapshots
+            .lock()
+            .unwrap()
+            .insert(date.clone(), stored);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn list_permanotes() -> Result<Vec<vault::PermanoteItem>, String> {
     vault::list_permanotes()
 }
@@ -140,6 +160,29 @@ fn write_permanote(
 }
 
 #[tauri::command]
+fn delete_permanote(id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let source_day = vault::read_permanote(&id)
+        .ok()
+        .map(|p| p.source_day)
+        .filter(|s| !s.is_empty());
+    vault::delete_permanote(&id)?;
+    if let Some(day) = source_day {
+        if let Ok(day_body) = vault::read_day(&day) {
+            if let Ok(mut snaps) = state.snapshots.lock() {
+                snaps.insert(day, day_body);
+            }
+        }
+    }
+    let _ = state.index.rebuild();
+    Ok(())
+}
+
+#[tauri::command]
+fn list_permanote_backlinks(id: String) -> Result<Vec<String>, String> {
+    vault::list_permanote_backlinks(&id)
+}
+
+#[tauri::command]
 fn list_days() -> Result<Vec<vault::DayInfo>, String> {
     vault::list_days()
 }
@@ -157,10 +200,36 @@ fn rebuild_index(state: State<'_, AppState>) -> Result<usize, String> {
     state.index.rebuild()
 }
 
+#[tauri::command]
+fn get_settings() -> settings::Settings {
+    settings::get()
+}
+
+#[tauri::command]
+fn update_settings(new: settings::Settings) -> Result<(), String> {
+    settings::save(new)
+}
+
+#[tauri::command]
+fn is_first_run() -> bool {
+    settings::is_first_run()
+}
+
+#[tauri::command]
+fn default_vault_path() -> Result<String, String> {
+    vault::default_vault_root().map(|p| p.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let idx = index::Index::open().expect("failed to open index");
             let _ = idx.rebuild();
@@ -181,12 +250,20 @@ pub fn run() {
             open_vault_folder,
             list_todos,
             set_todo_state,
+            set_todo_due,
             list_permanotes,
             read_permanote,
             write_permanote,
+            delete_permanote,
+            list_permanote_backlinks,
             list_days,
             search,
-            rebuild_index
+            rebuild_index,
+            get_settings,
+            update_settings,
+            is_first_run,
+            default_vault_path,
+            restart_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

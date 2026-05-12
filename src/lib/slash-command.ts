@@ -26,9 +26,18 @@ export const slashItems: SlashItem[] = [
         .chain()
         .focus()
         .deleteRange(range)
-        // @ts-expect-error custom command
         .wrapSelectionInPermanote()
         .run();
+    },
+  },
+  {
+    title: "Link permanote",
+    hint: "Reference an existing permanote",
+    keywords: ["link", "ref", "backlink", "perma"],
+    command: ({ editor, range }) => {
+      editor.chain().focus().deleteRange(range).run();
+      // The host page listens for this event and opens the picker.
+      window.dispatchEvent(new CustomEvent("permanote:open-link-picker"));
     },
   },
   {
