@@ -390,16 +390,23 @@
     if (item && slashCommand) slashCommand(item);
   }
 
+  function positionSlashMenu(rect: DOMRect) {
+    const itemCount = Math.max(1, slashItemsList.length);
+    const estHeight = Math.min(280, itemCount * 28 + 8);
+    const margin = 8;
+    const below = rect.bottom + 4;
+    const wouldOverflow = below + estHeight > window.innerHeight - margin;
+    slashLeft = Math.min(rect.left, window.innerWidth - 240);
+    slashTop = wouldOverflow ? Math.max(margin, rect.top - estHeight - 4) : below;
+  }
+
   const SlashCommand = createSlashCommand(() => ({
     onStart: (props: SlashRenderProps) => {
       slashItemsList = props.items;
       slashIndex = 0;
       slashCommand = props.command;
       const rect = props.clientRect?.();
-      if (rect) {
-        slashLeft = rect.left;
-        slashTop = rect.bottom + 4;
-      }
+      if (rect) positionSlashMenu(rect);
       slashOpen = true;
     },
     onUpdate: (props: SlashRenderProps) => {
@@ -407,10 +414,7 @@
       slashIndex = Math.min(slashIndex, Math.max(0, props.items.length - 1));
       slashCommand = props.command;
       const rect = props.clientRect?.();
-      if (rect) {
-        slashLeft = rect.left;
-        slashTop = rect.bottom + 4;
-      }
+      if (rect) positionSlashMenu(rect);
     },
     onKeyDown: ({ event }) => {
       if (!slashOpen) return false;
@@ -867,6 +871,51 @@
             return true;
           }
           return false;
+        },
+        handlePaste(view, event) {
+          // When pasting plain multi-line text inside a list item, turn each
+          // line into its own list item so bullets/checkboxes are preserved.
+          const text = event.clipboardData?.getData("text/plain");
+          if (!text || !/\r?\n/.test(text)) return false;
+          const html = event.clipboardData?.getData("text/html");
+          if (html && html.trim()) return false;
+
+          const { state } = view;
+          const { $from } = state.selection;
+          let itemDepth = -1;
+          let itemType: any = null;
+          for (let d = $from.depth; d > 0; d--) {
+            const n = $from.node(d);
+            if (n.type.name === "listItem" || n.type.name === "taskItem") {
+              itemDepth = d;
+              itemType = n.type;
+              break;
+            }
+          }
+          if (itemDepth < 0 || !itemType) return false;
+
+          const rawLines = text.split(/\r?\n/);
+          while (rawLines.length && rawLines[rawLines.length - 1] === "") rawLines.pop();
+          if (rawLines.length < 2) return false;
+
+          const { schema } = state;
+          const paragraphType = schema.nodes.paragraph;
+          if (!paragraphType) return false;
+
+          const newItems = rawLines.slice(1).map((line) => {
+            const para = paragraphType.create(null, line ? schema.text(line) : null);
+            const attrs = itemType.name === "taskItem" ? { checked: false } : null;
+            return itemType.create(attrs, para);
+          });
+
+          let tr = state.tr;
+          if (!state.selection.empty) tr = tr.deleteSelection();
+          if (rawLines[0]) tr = tr.insertText(rawLines[0]);
+          const itemEnd = $from.after(itemDepth);
+          const insertAt = tr.mapping.map(itemEnd);
+          tr = tr.insert(insertAt, newItems);
+          view.dispatch(tr);
+          return true;
         },
       },
     });
@@ -2181,7 +2230,9 @@
     font-size: 0.85rem;
     font-weight: 500;
     color: var(--accent);
+    flex: 1;
     min-width: 0;
+    text-align: left;
     overflow-wrap: anywhere;
   }
 
@@ -2227,21 +2278,24 @@
     overflow-y: auto;
     box-sizing: border-box;
     position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
   .canvas-inner {
     max-width: 760px;
     width: 100%;
-    min-height: 100%;
-    margin: 0 auto;
-    padding: 4rem 2rem 0.75rem;
+    flex: 1 0 auto;
+    padding: 1.5rem 2rem 0.75rem;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
   }
   .canvas-tools {
-    position: absolute;
+    position: sticky;
     top: 1rem;
-    right: 1rem;
+    align-self: flex-end;
+    margin: 1rem 1rem 0 0;
     display: flex;
     gap: 0.4rem;
     z-index: 5;
