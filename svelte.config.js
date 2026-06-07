@@ -12,6 +12,20 @@ const config = {
     adapter: adapter({
       fallback: "index.html",
     }),
+    // CSP via SvelteKit so its inline bootstrap script is hashed per-build.
+    // Tauri's own csp is left null in tauri.conf.json to defer to this meta tag.
+    csp: {
+      mode: "hash",
+      directives: {
+        "default-src": ["self"],
+        "script-src": ["self"],
+        "style-src": ["self", "unsafe-inline"],
+        "img-src": ["self", "data:", "asset:", "https://asset.localhost"],
+        "connect-src": ["self", "ipc:", "http://ipc.localhost"],
+        "object-src": ["none"],
+        "base-uri": ["self"],
+      },
+    },
   },
 };
 

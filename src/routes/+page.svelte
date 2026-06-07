@@ -3,6 +3,8 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
+  import { check, type Update } from "@tauri-apps/plugin-updater";
+  import { relaunch } from "@tauri-apps/plugin-process";
   import { Editor } from "@tiptap/core";
   import { Extension, InputRule } from "@tiptap/core";
   import StarterKit from "@tiptap/starter-kit";
@@ -77,8 +79,7 @@
   }
   let frontmatter = "";
   let dirty = $state(false);
-  let externalConflict = $state<{ date: string; content: string } | null>(null);
-  let focusMode = $state(false);
+  let externalConflict = $state<{ date: string; content: string } | null>(null);  let focusMode = $state(false);
   let unlistenExternal: UnlistenFn | null = null;
 
   // ── Settings & first-run ──────────────────────────────────────────────
@@ -353,6 +354,43 @@
   }
   function dismissToast(id: number) {
     toasts = toasts.filter((t) => t.id !== id);
+  }
+
+  // ---- Auto-update (Tauri updater plugin) -------------------------------
+  let pendingUpdate = $state<Update | null>(null);
+  let updateVersion = $state("");
+  let updateBusy = $state(false);
+
+  async function checkForUpdates() {
+    try {
+      const update = await check();
+      if (update) {
+        pendingUpdate = update;
+        updateVersion = update.version;
+      }
+    } catch (e) {
+      // No endpoint in dev, offline, or 404 before first release: ignore.
+      console.debug("update check skipped:", e);
+    }
+  }
+
+  async function installUpdate() {
+    if (!pendingUpdate || updateBusy) return;
+    updateBusy = true;
+    try {
+      // Flush any in-flight edits before the installer quits the app.
+      if (dirty) await save();
+      await pendingUpdate.downloadAndInstall();
+      await relaunch();
+    } catch (e) {
+      console.error(e);
+      notify(`Update failed: ${e}`);
+      updateBusy = false;
+    }
+  }
+
+  function dismissUpdate() {
+    pendingUpdate = null;
   }
 
   function onSearchInput() {
@@ -699,6 +737,7 @@
   }
 
   function splitFrontmatter(raw: string): { frontmatter: string; body: string } {
+    if (raw.includes("\r")) raw = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
     if (raw.startsWith("---\n")) {
       const end = raw.indexOf("\n---\n", 4);
       if (end !== -1) {
@@ -836,6 +875,7 @@
     window.addEventListener("keydown", onLinkPickerKey);
     window.addEventListener("permanote:open-link-picker", openLinkPicker as EventListener);
 
+    try {
     editor = new Editor({
       element: editorEl,
       extensions: [
@@ -881,11 +921,11 @@
           if (html && html.trim()) return false;
 
           const { state } = view;
-          const { $from } = state.selection;
+          const fromPos = state.selection.$from;
           let itemDepth = -1;
           let itemType: any = null;
-          for (let d = $from.depth; d > 0; d--) {
-            const n = $from.node(d);
+          for (let d = fromPos.depth; d > 0; d--) {
+            const n = fromPos.node(d);
             if (n.type.name === "listItem" || n.type.name === "taskItem") {
               itemDepth = d;
               itemType = n.type;
@@ -911,7 +951,7 @@
           let tr = state.tr;
           if (!state.selection.empty) tr = tr.deleteSelection();
           if (rawLines[0]) tr = tr.insertText(rawLines[0]);
-          const itemEnd = $from.after(itemDepth);
+          const itemEnd = fromPos.after(itemDepth);
           const insertAt = tr.mapping.map(itemEnd);
           tr = tr.insert(insertAt, newItems);
           view.dispatch(tr);
@@ -944,6 +984,14 @@
         }
       },
     );
+    } catch (e) {
+      console.error(e);
+      status = "error";
+      notify(`Startup failed: ${e}`);
+    }
+
+    // Non-blocking: check for an app update once the UI is up.
+    checkForUpdates();
   });
 
   onDestroy(() => {
@@ -1184,6 +1232,20 @@
         <div class="conflict-actions">
           <button onclick={resolveKeepMine}>Keep mine</button>
           <button onclick={resolveUseTheirs}>Use theirs</button>
+        </div>
+      </div>
+    {/if}
+
+    {#if pendingUpdate}
+      <div class="update-banner" role="status">
+        <span class="update-text">
+          Permanote {updateVersion} is available.
+        </span>
+        <div class="conflict-actions">
+          <button onclick={installUpdate} disabled={updateBusy}>
+            {updateBusy ? "Installing…" : "Update & restart"}
+          </button>
+          <button onclick={dismissUpdate} disabled={updateBusy}>Later</button>
         </div>
       </div>
     {/if}
@@ -2653,6 +2715,30 @@
   }
   .conflict-text {
     color: #d8b078;
+  }
+  .update-banner {
+    position: fixed;
+    left: 50%;
+    bottom: 2rem;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 8px 14px;
+    background: #0c1622;
+    border: 1px solid #4a78c0;
+    border-radius: 3px;
+    color: var(--fg);
+    font-size: 0.72rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    z-index: 200;
+  }
+  .update-text {
+    color: #9cc0f0;
+  }
+  .update-banner button:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
   .conflict-actions {
     display: flex;

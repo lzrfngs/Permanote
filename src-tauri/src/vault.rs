@@ -77,7 +77,8 @@ pub fn read_day(date: &str) -> Result<String, String> {
     if !path.exists() {
         return Ok(default_day_content(date));
     }
-    fs::read_to_string(&path).map_err(|e| e.to_string())
+    let raw = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    Ok(normalize_lf(&raw).into_owned())
 }
 
 /// Atomic write: write to `.tmp`, fsync, rename over target.
@@ -157,6 +158,40 @@ fn now_iso() -> String {
 
 fn escape_yaml(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// Inverse of `escape_yaml`: turn `\"` back into `"` and `\\` back into `\`.
+fn unescape_yaml(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('"') => out.push('"'),
+                Some('\\') => out.push('\\'),
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Normalize CRLF / lone CR line endings to LF so all frontmatter, task, and
+/// fence parsing can assume `\n`. The app always writes LF, so a CRLF file
+/// edited externally (OneDrive, Notepad) reconciles cleanly on the next save.
+/// Returns a borrow when the input is already LF-only.
+fn normalize_lf(s: &str) -> std::borrow::Cow<'_, str> {
+    if s.contains('\r') {
+        std::borrow::Cow::Owned(s.replace("\r\n", "\n").replace('\r', "\n"))
+    } else {
+        std::borrow::Cow::Borrowed(s)
+    }
 }
 
 /// Write or update permanotes/{id}.md for every fenced permanote in a day.
@@ -281,16 +316,18 @@ fn rewrite_permanote_links(body: &str, id: &str, new_title: &str) -> String {
     out
 }
 
-fn strip_frontmatter(s: &str) -> String {
+fn strip_frontmatter(input: &str) -> String {
+    let s = normalize_lf(input);
     if let Some(rest) = s.strip_prefix("---\n") {
         if let Some(end) = rest.find("\n---\n") {
             return rest[end + 5..].trim_start().to_string();
         }
     }
-    s.to_string()
+    s.into_owned()
 }
 
-fn parse_yaml_field(s: &str, key: &str) -> Option<String> {
+fn parse_yaml_field(input: &str, key: &str) -> Option<String> {
+    let s = normalize_lf(input);
     let rest = s.strip_prefix("---\n")?;
     let end = rest.find("\n---\n")?;
     let head = &rest[..end];
@@ -298,7 +335,9 @@ fn parse_yaml_field(s: &str, key: &str) -> Option<String> {
         let line = line.trim();
         if let Some(v) = line.strip_prefix(&format!("{key}:")) {
             let v = v.trim();
-            let v = v.strip_prefix('"').and_then(|s| s.strip_suffix('"')).unwrap_or(v);
+            if let Some(inner) = v.strip_prefix('"').and_then(|x| x.strip_suffix('"')) {
+                return Some(unescape_yaml(inner));
+            }
             return Some(v.to_string());
         }
     }
@@ -464,6 +503,7 @@ pub fn list_todos() -> Result<Vec<TodoItem>, String> {
             Ok(b) => b,
             Err(_) => continue,
         };
+        let body = normalize_lf(&body);
         for (idx, line) in body.lines().enumerate() {
             if let Some((done, id, text)) = parse_task_line(line) {
                 let (clean, due) = extract_due(text);
@@ -648,6 +688,7 @@ fn gen_todo_id(seed: &str, counter: u64) -> String {
 pub fn set_todo_state(date: &str, line_index: usize, done: bool) -> Result<(), String> {
     let path = day_path(date)?;
     let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let content = normalize_lf(&content);
     let mut lines: Vec<String> = content.split_inclusive('\n').map(|s| s.to_string()).collect();
     if line_index >= lines.len() {
         return Err(format!("Line index out of range: {line_index}"));
@@ -686,6 +727,7 @@ pub fn set_todo_due(date: &str, line_index: usize, due: Option<&str>) -> Result<
     }
     let path = day_path(date)?;
     let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let content = normalize_lf(&content);
     let mut lines: Vec<String> = content.split_inclusive('\n').map(|s| s.to_string()).collect();
     if line_index >= lines.len() {
         return Err(format!("Line index out of range: {line_index}"));

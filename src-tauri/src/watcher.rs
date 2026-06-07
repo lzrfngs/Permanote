@@ -77,7 +77,7 @@ pub fn start(app: AppHandle, snapshots: Snapshots) -> Result<RecommendedWatcher,
                     handled.insert(p.clone());
 
                     let content = std::fs::read_to_string(&p).unwrap_or_default();
-                    let mut snaps = snapshots.lock().unwrap();
+                    let mut snaps = snapshots.lock().unwrap_or_else(|e| e.into_inner());
                     let prev = snaps.get(&date).cloned();
                     if prev.as_deref() == Some(content.as_str()) {
                         continue; // self-write

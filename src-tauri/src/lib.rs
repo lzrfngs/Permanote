@@ -231,6 +231,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            #[cfg(desktop)]
+            {
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+                app.handle().plugin(tauri_plugin_process::init())?;
+            }
             let idx = index::Index::open().expect("failed to open index");
             let _ = idx.rebuild();
             let snapshots: watcher::Snapshots = Arc::new(Mutex::new(HashMap::new()));
