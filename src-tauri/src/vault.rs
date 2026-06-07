@@ -4,6 +4,13 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+// Markers and tokens shared across day-file parsing/writing.
+const FENCE_START: &str = "%%permanote-start";
+const FENCE_END: &str = "%%permanote-end";
+const FENCE_DELIM: &str = "%%";
+const DEFAULT_COLOR: &str = "amber";
+const DUE_EMOJI: char = '\u{1F4C5}';
+
 #[derive(Serialize)]
 pub struct TodoItem {
     pub day: String,
@@ -125,18 +132,13 @@ fn extract_permanote_fences(content: &str) -> Vec<(String, String, String, Strin
     let mut i = 0;
     while i < lines.len() {
         let line = lines[i];
-        if let Some(rest) = line
-            .strip_prefix("%%permanote-start")
-            .and_then(|s| s.strip_suffix("%%"))
-            .map(|s| s.trim())
-        {
-            let attrs = parse_fence_attrs(rest);
+        if let Some(attrs) = parse_fence_start(line) {
             let id = attrs.get("id").cloned().unwrap_or_default();
-            let color = attrs.get("color").cloned().unwrap_or_else(|| "amber".into());
+            let color = attrs.get("color").cloned().unwrap_or_else(|| DEFAULT_COLOR.into());
             let title = attrs.get("title").cloned().unwrap_or_default();
             let mut body_lines: Vec<&str> = Vec::new();
             let mut j = i + 1;
-            while j < lines.len() && !lines[j].starts_with("%%permanote-end") {
+            while j < lines.len() && !is_fence_end(lines[j]) {
                 body_lines.push(lines[j]);
                 j += 1;
             }
@@ -348,7 +350,7 @@ pub fn read_permanote(id: &str) -> Result<PermanoteFile, String> {
     let path = permanote_path(id)?;
     let raw = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let title = parse_yaml_field(&raw, "title").unwrap_or_default();
-    let color = parse_yaml_field(&raw, "color").unwrap_or_else(|| "amber".into());
+    let color = parse_yaml_field(&raw, "color").unwrap_or_else(|| DEFAULT_COLOR.into());
     let source_day = parse_yaml_field(&raw, "source_day").unwrap_or_default();
     let created = parse_yaml_field(&raw, "created").unwrap_or_default();
     let modified = parse_yaml_field(&raw, "modified").unwrap_or_default();
@@ -425,13 +427,8 @@ fn rewrite_fence_in_day(day: &str, id: &str, title: &str, color: &str, content: 
     let target_id = id;
     while i < lines.len() {
         let line = lines[i];
-        let is_match = line
-            .strip_prefix("%%permanote-start")
-            .and_then(|s| s.strip_suffix("%%"))
-            .map(|s| {
-                let attrs = parse_fence_attrs(s.trim());
-                attrs.get("id").map(|v| v.as_str()) == Some(target_id)
-            })
+        let is_match = parse_fence_start(line)
+            .map(|attrs| attrs.get("id").map(|v| v.as_str()) == Some(target_id))
             .unwrap_or(false);
         if is_match {
             out.push(format!(
@@ -445,7 +442,7 @@ fn rewrite_fence_in_day(day: &str, id: &str, title: &str, color: &str, content: 
             }
             // Skip to the matching end fence.
             let mut j = i + 1;
-            while j < lines.len() && !lines[j].starts_with("%%permanote-end") {
+            while j < lines.len() && !is_fence_end(lines[j]) {
                 j += 1;
             }
             out.push(format!("%%permanote-end id={id}%%", id = id));
@@ -566,8 +563,8 @@ fn parse_task_line(line: &str) -> Option<(bool, String, &str)> {
 /// Returns the text with the marker removed (trimmed) and the parsed date,
 /// or the original text plus `None` if no valid marker is found.
 pub fn extract_due(text: &str) -> (String, Option<String>) {
-    if let Some(pos) = text.find('\u{1F4C5}') {
-        let after = text[pos + '\u{1F4C5}'.len_utf8()..].trim_start();
+    if let Some(pos) = text.find(DUE_EMOJI) {
+        let after = text[pos + DUE_EMOJI.len_utf8()..].trim_start();
         if let Some(date) = take_iso_date(after) {
             let before = text[..pos].trim_end();
             let tail = after[10..].trim_start();
@@ -754,7 +751,8 @@ pub fn set_todo_due(date: &str, line_index: usize, due: Option<&str>) -> Result<
         if !new_body.ends_with(' ') {
             new_body.push(' ');
         }
-        new_body.push_str("\u{1F4C5} ");
+        new_body.push(DUE_EMOJI);
+        new_body.push(' ');
         new_body.push_str(d);
     }
     new_body.push_str(eol);
@@ -789,20 +787,15 @@ pub fn list_permanotes() -> Result<Vec<PermanoteItem>, String> {
         let mut i = 0;
         while i < lines.len() {
             let line = lines[i];
-            if let Some(rest) = line
-                .strip_prefix("%%permanote-start")
-                .and_then(|s| s.strip_suffix("%%"))
-                .map(|s| s.trim())
-            {
-                let attrs = parse_fence_attrs(rest);
+            if let Some(attrs) = parse_fence_start(line) {
                 let id = attrs.get("id").cloned().unwrap_or_default();
-                let color = attrs.get("color").cloned().unwrap_or_else(|| "amber".into());
+                let color = attrs.get("color").cloned().unwrap_or_else(|| DEFAULT_COLOR.into());
                 let title = attrs.get("title").cloned().unwrap_or_default();
                 // First non-empty line of body becomes snippet.
                 let mut snippet = String::new();
                 let mut j = i + 1;
                 while j < lines.len() {
-                    if lines[j].starts_with("%%permanote-end") {
+                    if is_fence_end(lines[j]) {
                         break;
                     }
                     let t = lines[j].trim();
@@ -826,6 +819,25 @@ pub fn list_permanotes() -> Result<Vec<PermanoteItem>, String> {
         }
     }
     Ok(out)
+}
+
+/// If `line` is a `%%permanote-start ...%%` opener, parse and return its attrs.
+fn parse_fence_start(line: &str) -> Option<std::collections::HashMap<String, String>> {
+    line.strip_prefix(FENCE_START)
+        .and_then(|s| s.strip_suffix(FENCE_DELIM))
+        .map(|s| parse_fence_attrs(s.trim()))
+}
+
+/// If `line` is a `%%permanote-end ...%%` closer, parse and return its attrs.
+fn parse_fence_end(line: &str) -> Option<std::collections::HashMap<String, String>> {
+    line.strip_prefix(FENCE_END)
+        .and_then(|s| s.strip_suffix(FENCE_DELIM))
+        .map(|s| parse_fence_attrs(s.trim()))
+}
+
+/// True if `line` is any `%%permanote-end...%%` closer.
+fn is_fence_end(line: &str) -> bool {
+    line.starts_with(FENCE_END)
 }
 
 fn parse_fence_attrs(input: &str) -> std::collections::HashMap<String, String> {
@@ -999,13 +1011,8 @@ fn unwrap_fence_in_day(day: &str, id: &str) -> String {
     let mut i = 0;
     while i < lines.len() {
         let line = lines[i];
-        let is_start = line
-            .strip_prefix("%%permanote-start")
-            .and_then(|s| s.strip_suffix("%%"))
-            .map(|s| {
-                let attrs = parse_fence_attrs(s.trim());
-                attrs.get("id").map(|v| v.as_str()) == Some(id)
-            })
+        let is_start = parse_fence_start(line)
+            .map(|attrs| attrs.get("id").map(|v| v.as_str()) == Some(id))
             .unwrap_or(false);
         if is_start {
             // Skip the start line itself.
@@ -1018,13 +1025,8 @@ fn unwrap_fence_in_day(day: &str, id: &str) -> String {
             // Copy body lines until the matching end marker.
             while i < lines.len() {
                 let l = lines[i];
-                let is_end = l
-                    .strip_prefix("%%permanote-end")
-                    .and_then(|s| s.strip_suffix("%%"))
-                    .map(|s| {
-                        let attrs = parse_fence_attrs(s.trim());
-                        attrs.get("id").map(|v| v.as_str()) == Some(id)
-                    })
+                let is_end = parse_fence_end(l)
+                    .map(|attrs| attrs.get("id").map(|v| v.as_str()) == Some(id))
                     .unwrap_or(false);
                 if is_end {
                     i += 1;

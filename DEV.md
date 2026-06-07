@@ -49,10 +49,20 @@ Auto-update system (Tauri 2 updater plugin)
 
 Notes: OS code signing deferred (SmartScreen shows a one-time "Run anyway" on first browser download; auto-updates bypass it). The updater's Ed25519 signature is separate from OS code signing.
 
-### Still open (deferred from this pass)
-- [ ] Snapshot/watcher race on permanote write (med) — left as-is; rebuild() + snapshot refresh mitigates in practice.
-- [ ] Split 3000-line `+page.svelte` and 1000-line `vault.rs` into modules (med, larger refactor).
-- [ ] Magic strings → constants; dedupe fence parsing; remove dead unwrap fns; replace startup `.expect()` panics (low).
+---
+
+## v0.2.1 — Backend tidy-up (no behavior change)
+
+- [x] Magic strings → constants in `vault.rs`: `FENCE_START`, `FENCE_END`, `FENCE_DELIM`, `DEFAULT_COLOR`, `DUE_EMOJI`.
+- [x] Deduped fence parsing: new `parse_fence_start` / `parse_fence_end` / `is_fence_end` helpers replace four copies of the same `strip_prefix(...).strip_suffix("%%")` logic (`extract_permanote_fences`, `list_permanotes`, `rewrite_fence_in_day`, `unwrap_fence_in_day`).
+- [x] Startup hardening: `index::Index::open().expect(...)` panic replaced with `?` error propagation out of `setup()` — a bad index path now fails gracefully instead of aborting.
+- [x] Index mutex made poison-tolerant (`lock().unwrap_or_else(|e| e.into_inner())`) in `rebuild` / `index_day` / `search`, matching the watcher fix.
+- [!] "Dead unwrap fns" — NOT removed. `unwrap_permanote_links` / `unwrap_fence_in_day` are live (called by `delete_permanote`); the audit flag was wrong.
+- Verified: `cargo check` clean. No frontend changes.
+
+### Still open (deferred)
+- [ ] Snapshot/watcher race on permanote write (med) — needs debounce; `rebuild()` + snapshot refresh mitigates in practice.
+- [ ] Split 3000-line `+page.svelte` and 1000-line `vault.rs` into modules (med, larger refactor) — deferred deliberately: high regression risk right after stabilizing; better as its own focused pass.
 
 ---
 

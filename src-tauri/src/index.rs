@@ -44,7 +44,7 @@ impl Index {
     /// Wipe and rebuild from every day file on disk. Called on startup so the
     /// index is always recoverable from the source of truth.
     pub fn rebuild(&self) -> Result<usize, String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute_batch("DELETE FROM days; DELETE FROM days_fts;")
             .map_err(|e| e.to_string())?;
         let days_dir = vault::vault_root()?.join("days");
@@ -79,7 +79,7 @@ impl Index {
     }
 
     pub fn index_day(&self, date: &str, content: &str) -> Result<(), String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let modified = format_systime(std::time::SystemTime::now());
         insert_day(&conn, date, content, &modified)
     }
@@ -89,7 +89,7 @@ impl Index {
         if q.is_empty() {
             return Ok(Vec::new());
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn
             .prepare(
                 "SELECT date, snippet(days_fts, 1, '<<', '>>', '…', 12) \
