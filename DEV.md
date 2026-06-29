@@ -15,6 +15,26 @@ _Add new notes/requests here as bullets. They get processed into a version below
 
 ---
 
+## v0.2.3 - Page refactor loop, slice 1
+
+Maintainability
+- [x] Split shell-level UI out of the 3000+ line `src/routes/+page.svelte` surface:
+  - `src/lib/components/StatusBanners.svelte` owns external-change and updater banners.
+  - `src/lib/components/SlashMenu.svelte` owns slash-command menu rendering and chrome.
+  - `src/lib/components/ToastStack.svelte` owns toast rendering and animation.
+- [x] Moved shared app contracts into `src/lib/app-model.ts` so Tauri payload shapes, UI lists, calendar cells, and toast contracts are not redefined inside the route file.
+- [x] Moved date/calendar/html helpers into `src/lib/date-utils.ts`, including calendar-grid generation, day labels, due labels, headline formatting, and safe snippet escaping.
+
+Safety checks
+- [x] Ran a fresh review pass on the extracted component contract. Fixed one real regression: the update banner now renders from `pendingUpdate` state, not stale `updateVersion`, so "Later" hides it correctly.
+- [x] Verified `npm run check`, `npm run build`, `npm audit --omit=dev`, `cargo check`, and `cargo test`.
+
+Notes
+- [x] Website/landing files stayed out of scope and remain untouched by this app loop.
+- [ ] Continue refactor with larger stateful panels next: Todo panel, Permanote panel, then settings/permanote detail. Keep these as separate slices because they own more app state.
+
+---
+
 ## v0.2.2 — Native app hardening loop
 
 Validation floor

@@ -12,6 +12,11 @@
   import TaskItem from "@tiptap/extension-task-item";
   import Placeholder from "@tiptap/extension-placeholder";
   import { Markdown } from "tiptap-markdown";
+  import type { DayInfo, Permanote as PermanoteItem, PermanoteFile, SearchHit, Settings, Toast, Todo } from "$lib/app-model";
+  import SlashMenu from "$lib/components/SlashMenu.svelte";
+  import StatusBanners from "$lib/components/StatusBanners.svelte";
+  import ToastStack from "$lib/components/ToastStack.svelte";
+  import { buildCalendarGrid, calendarLabel as formatCalendarLabel, dayLabel as formatDayLabel, dueLabel, escapeHtml, headlineLabel, todayIso, tomorrowIso } from "$lib/date-utils";
   import { Permanote } from "$lib/permanote-node";
   import { PermanoteLink } from "$lib/permanote-link-node";
   import { createSlashCommand, slashItems, type SlashItem, type SlashRenderProps } from "$lib/slash-command";
@@ -83,12 +88,6 @@
   let unlistenExternal: UnlistenFn | null = null;
 
   // ── Settings & first-run ──────────────────────────────────────────────
-  type Settings = {
-    vault_root: string | null;
-    permanote_mode: "color" | "label";
-    theme: "light" | "dark" | "system";
-    permanote_order: string[];
-  };
   let settings = $state<Settings>({
     vault_root: null,
     permanote_mode: "color",
@@ -140,7 +139,6 @@
     await invoke("restart_app");
   }
 
-  type Todo = { day: string; line: number; id: string; text: string; done: boolean; due?: string | null };
   let todos = $state<Todo[]>([]);
   let todoFilter = $state<"open" | "done" | "scheduled" | "all">("open");
 
@@ -149,15 +147,7 @@
     return todos.filter((t) => !t.done && t.due === date && t.day !== date);
   });
 
-  type Permanote = {
-    id: string;
-    day: string;
-    line: number;
-    color: string;
-    title: string;
-    snippet: string;
-  };
-  let permanotes = $state<Permanote[]>([]);
+  let permanotes = $state<PermanoteItem[]>([]);
   let permaColorFilter = $state<string | "all">("all");
   let permaQuery = $state("");
   let permaSort = $state<"recent" | "title" | "manual">("recent");
@@ -250,7 +240,6 @@
     dragOverId = null;
   }
 
-  type DayInfo = { date: string; has_open_todos: boolean };
   let days = $state<DayInfo[]>([]);
   // Anchor month for the calendar grid: "YYYY-MM".
   let calendarMonth = $state("");
@@ -337,12 +326,11 @@
     }
   }
 
-  type SearchHit = { date: string; snippet: string };  let searchQuery = $state("");
+  let searchQuery = $state("");
   let searchHits = $state<SearchHit[]>([]);
   let searchInputEl: HTMLInputElement | null = $state(null);
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
-  type Toast = { id: number; message: string; kind: "error" | "info" };
   let toasts = $state<Toast[]>([]);
   let toastSeq = 0;
   function notify(message: string, kind: Toast["kind"] = "error") {
@@ -492,21 +480,12 @@
 
   async function refreshPermanotes() {
     try {
-      permanotes = await invoke<Permanote[]>("list_permanotes");
+      permanotes = await invoke<PermanoteItem[]>("list_permanotes");
     } catch (e) {
       console.error("list_permanotes failed", e);
     }
   }
 
-  type PermanoteFile = {
-    id: string;
-    title: string;
-    color: string;
-    source_day: string;
-    created: string;
-    modified: string;
-    content: string;
-  };
   let permaDetail = $state<PermanoteFile | null>(null);
   let permaDetailDraft = $state<{ title: string; color: string; content: string } | null>(null);
   let permaDetailBacklinks = $state<string[]>([]);
@@ -638,7 +617,7 @@
     linkPickerOpen = false;
   }
 
-  function insertLinkFromPicker(p: Permanote) {
+  function insertLinkFromPicker(p: PermanoteItem) {
     if (!editor) return;
     editor
       .chain()
@@ -707,24 +686,6 @@
       notify(`Schedule failed: ${e}`);
     }
   }
-  function todayIso(): string {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  }
-  function tomorrowIso(): string {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  }
-  function dueLabel(d: string): string {
-    const t = todayIso();
-    if (d === t) return "Today";
-    if (d === tomorrowIso()) return "Tomorrow";
-    const [y, m, dd] = d.split("-").map(Number);
-    const dt = new Date(y, m - 1, dd);
-    return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  }
-
   async function jumpToDay(newDate: string) {
     if (newDate === date) return;
     if (saveTimer) {
@@ -1016,16 +977,7 @@
     await loadDay();
   }
 
-  const headline = $derived.by(() => {
-    if (!date) return "";
-    const [y, m, d] = date.split("-").map(Number);
-    const dt = new Date(y, m - 1, d);
-    return dt.toLocaleDateString(undefined, {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-    });
-  });
+  const headline = $derived.by(() => headlineLabel(date));
 
   const visibleTodos = $derived.by(() => {
     if (todoFilter === "open") return todos.filter((t) => !t.done);
@@ -1044,67 +996,12 @@
   });
 
   function dayLabel(d: string): string {
-    if (d === date) return "Today";
-    const [y, m, dd] = d.split("-").map(Number);
-    const dt = new Date(y, m - 1, dd);
-    return dt.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-    });
+    return formatDayLabel(d, date);
   }
 
-  function escapeHtml(s: string): string {
-    return s
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;");
-  }
+  const calendarGrid = $derived.by(() => buildCalendarGrid(calendarMonth, days));
 
-  type CalCell = {
-    date: string;
-    day: number;
-    inMonth: boolean;
-    hasContent: boolean;
-    hasOpen: boolean;
-  };
-
-  const dayMap = $derived.by(() => {
-    const m = new Map<string, DayInfo>();
-    for (const d of days) m.set(d.date, d);
-    return m;
-  });
-
-  const calendarGrid = $derived.by<CalCell[]>(() => {
-    if (!calendarMonth) return [];
-    const [y, m] = calendarMonth.split("-").map(Number);
-    const first = new Date(y, m - 1, 1);
-    // Sunday-start grid. JS getDay(): 0=Sunday.
-    const startWeekday = first.getDay();
-    const gridStart = new Date(y, m - 1, 1 - startWeekday);
-    const cells: CalCell[] = [];
-    for (let i = 0; i < 42; i++) {
-      const dt = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
-      const ds = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
-      const info = dayMap.get(ds);
-      cells.push({
-        date: ds,
-        day: dt.getDate(),
-        inMonth: dt.getMonth() === m - 1,
-        hasContent: !!info,
-        hasOpen: !!info?.has_open_todos,
-      });
-    }
-    return cells;
-  });
-
-  const calendarLabel = $derived.by(() => {
-    if (!calendarMonth) return "";
-    const [y, m] = calendarMonth.split("-").map(Number);
-    return new Date(y, m - 1, 1).toLocaleDateString(undefined, {
-      month: "long",
-      year: "numeric",
-    });
-  });
+  const calendarLabel = $derived.by(() => formatCalendarLabel(calendarMonth));
 </script>
 
 <div class="shell">
@@ -1224,31 +1121,16 @@
 
     <div class="editor" bind:this={editorEl}></div>
 
-    {#if externalConflict}
-      <div class="conflict-banner" role="alert">
-        <span class="conflict-text">
-          This day was changed on another device.
-        </span>
-        <div class="conflict-actions">
-          <button onclick={resolveKeepMine}>Keep mine</button>
-          <button onclick={resolveUseTheirs}>Use theirs</button>
-        </div>
-      </div>
-    {/if}
-
-    {#if pendingUpdate}
-      <div class="update-banner" role="status">
-        <span class="update-text">
-          Permanote {updateVersion} is available.
-        </span>
-        <div class="conflict-actions">
-          <button onclick={installUpdate} disabled={updateBusy}>
-            {updateBusy ? "Installing…" : "Update & restart"}
-          </button>
-          <button onclick={dismissUpdate} disabled={updateBusy}>Later</button>
-        </div>
-      </div>
-    {/if}
+    <StatusBanners
+      hasExternalConflict={!!externalConflict}
+      hasPendingUpdate={!!pendingUpdate}
+      {updateVersion}
+      {updateBusy}
+      onKeepMine={resolveKeepMine}
+      onUseTheirs={resolveUseTheirs}
+      onInstallUpdate={installUpdate}
+      onDismissUpdate={dismissUpdate}
+    />
 
     <footer class="canvas-foot">
       <span class="date">{date}</span>
@@ -1257,25 +1139,15 @@
     </footer>
     </div>
 
-    {#if slashOpen && slashItemsList.length > 0}
-      <div
-        class="slash-menu"
-        style="left: {slashLeft}px; top: {slashTop}px;"
-        role="listbox"
-      >
-        {#each slashItemsList as item, i (item.title)}
-          <button
-            class="slash-item"
-            class:active={i === slashIndex}
-            onmousedown={(e) => { e.preventDefault(); pickSlash(i); }}
-            onmouseenter={() => (slashIndex = i)}
-            type="button"
-          >
-            <span class="slash-title">{item.title}</span>
-            {#if item.hint}<span class="slash-hint">{item.hint}</span>{/if}
-          </button>
-        {/each}
-      </div>
+    {#if slashOpen}
+      <SlashMenu
+        items={slashItemsList}
+        activeIndex={slashIndex}
+        left={slashLeft}
+        top={slashTop}
+        onPick={pickSlash}
+        onHover={(i) => (slashIndex = i)}
+      />
     {/if}
 
   </main>
@@ -1724,15 +1596,7 @@
   </div>
 {/if}
 
-{#if toasts.length}
-  <div class="toast-stack" aria-live="polite">
-    {#each toasts as t (t.id)}
-      <button class="toast toast-{t.kind}" onclick={() => dismissToast(t.id)} title="Dismiss">
-        {t.message}
-      </button>
-    {/each}
-  </div>
-{/if}
+<ToastStack {toasts} onDismiss={dismissToast} />
 </div>
 
 <style>
@@ -2696,108 +2560,6 @@
     display: none;
   }
 
-  .conflict-banner {
-    position: fixed;
-    left: 50%;
-    bottom: 2rem;
-    transform: translateX(-50%);
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    padding: 8px 14px;
-    background: #1a140a;
-    border: 1px solid #c08a3e;
-    border-radius: 3px;
-    color: var(--fg);
-    font-size: 0.72rem;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-    z-index: 200;
-  }
-  .conflict-text {
-    color: #d8b078;
-  }
-  .update-banner {
-    position: fixed;
-    left: 50%;
-    bottom: 2rem;
-    transform: translateX(-50%);
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    padding: 8px 14px;
-    background: #0c1622;
-    border: 1px solid #4a78c0;
-    border-radius: 3px;
-    color: var(--fg);
-    font-size: 0.72rem;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-    z-index: 200;
-  }
-  .update-text {
-    color: #9cc0f0;
-  }
-  .update-banner button:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-  .conflict-actions {
-    display: flex;
-    gap: 6px;
-  }
-  .conflict-actions button {
-    background: transparent;
-    border: 1px solid var(--border-2);
-    color: var(--fg);
-    font: inherit;
-    font-size: 0.7rem;
-    padding: 3px 10px;
-    cursor: pointer;
-    border-radius: 2px;
-  }
-  .conflict-actions button:hover {
-    background: var(--accent-bg);
-    border-color: var(--border-3);
-  }
-
-  .slash-menu {
-    position: fixed;
-    z-index: 1000;
-    min-width: 220px;
-    max-height: 280px;
-    overflow-y: auto;
-    background: var(--panel-2);
-    border: 1px solid var(--border-2);
-    border-radius: 4px;
-    padding: 4px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    font-family: "IBM Plex Mono", ui-monospace, monospace;
-    font-size: 0.72rem;
-  }
-  .slash-item {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    width: 100%;
-    background: transparent;
-    border: 0;
-    color: var(--fg);
-    padding: 6px 10px;
-    text-align: left;
-    cursor: pointer;
-    border-radius: 2px;
-  }
-  .slash-item.active {
-    background: var(--accent-bg);
-  }
-  .slash-title {
-    color: var(--fg);
-  }
-  .slash-hint {
-    color: var(--fg-faint);
-    font-size: 0.62rem;
-    margin-left: 12px;
-  }
-
   :global(.editor .permanote-body > *:last-child) {
     margin-bottom: 0;
   }
@@ -3407,40 +3169,6 @@
   :global(textarea:focus-visible) {
     outline: 1px solid var(--fg-dim);
     outline-offset: 2px;
-  }
-
-  /* Toast stack (bottom-right) */
-  .toast-stack {
-    position: fixed;
-    right: 1rem;
-    bottom: 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    z-index: 1000;
-    pointer-events: none;
-  }
-  .toast {
-    pointer-events: auto;
-    max-width: 360px;
-    padding: 0.6rem 0.85rem;
-    background: var(--panel);
-    color: var(--fg);
-    border: 1px solid var(--border-2);
-    border-left: 3px solid #c08a3e;
-    border-radius: 2px;
-    font: inherit;
-    font-size: 0.75rem;
-    text-align: left;
-    cursor: pointer;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
-    animation: toast-in 160ms ease-out;
-  }
-  .toast-error { border-left-color: #c2553a; }
-  .toast:hover { background: var(--panel-2); }
-  @keyframes toast-in {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: translateY(0); }
   }
 
   /* Scheduled-for-today banner above editor */
