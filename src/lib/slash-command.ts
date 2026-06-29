@@ -1,5 +1,5 @@
 import { Extension, type Editor, type Range } from "@tiptap/core";
-import Suggestion, { type SuggestionOptions } from "@tiptap/suggestion";
+import Suggestion, { type SuggestionOptions, type SuggestionProps } from "@tiptap/suggestion";
 
 export type SlashItem = {
   title: string;
@@ -96,13 +96,13 @@ export const slashItems: SlashItem[] = [
 export type SlashRenderProps = {
   items: SlashItem[];
   command: (item: SlashItem) => void;
-  clientRect: (() => DOMRect | null) | null;
+  clientRect?: (() => DOMRect | null) | null;
   query: string;
 };
 
 export type SlashRenderHandlers = {
-  onStart: (props: SlashRenderProps) => void;
-  onUpdate: (props: SlashRenderProps) => void;
+  onStart: (props: SuggestionProps<SlashItem>) => void;
+  onUpdate: (props: SuggestionProps<SlashItem>) => void;
   onKeyDown: (props: { event: KeyboardEvent }) => boolean;
   onExit: () => void;
 };

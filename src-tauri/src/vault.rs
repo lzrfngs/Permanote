@@ -2,6 +2,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use chrono::NaiveDate;
 use serde::Serialize;
 
 // Markers and tokens shared across day-file parsing/writing.
@@ -69,14 +70,17 @@ pub fn days_dir() -> Result<PathBuf, String> {
 }
 
 fn is_valid_date(s: &str) -> bool {
-    // YYYY-MM-DD, all digits with dashes in the right places
     let b = s.as_bytes();
-    b.len() == 10
-        && b[4] == b'-'
-        && b[7] == b'-'
-        && b[..4].iter().all(|c| c.is_ascii_digit())
-        && b[5..7].iter().all(|c| c.is_ascii_digit())
-        && b[8..10].iter().all(|c| c.is_ascii_digit())
+    if b.len() != 10
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || !b[..4].iter().all(|c| c.is_ascii_digit())
+        || !b[5..7].iter().all(|c| c.is_ascii_digit())
+        || !b[8..10].iter().all(|c| c.is_ascii_digit())
+    {
+        return false;
+    }
+    NaiveDate::parse_from_str(s, "%Y-%m-%d").is_ok()
 }
 
 pub fn read_day(date: &str) -> Result<String, String> {
@@ -1093,13 +1097,14 @@ mod tests {
 
     #[test]
     fn date_validation() {
-        // Shape check only — doesn't validate month/day ranges.
         assert!(is_valid_date("2026-05-12"));
-        assert!(is_valid_date("0000-00-00"));
         assert!(!is_valid_date("26-05-12"));
         assert!(!is_valid_date("2026/05/12"));
         assert!(!is_valid_date("2026-5-12"));
         assert!(!is_valid_date("2026-05-12X"));
+        assert!(!is_valid_date("0000-00-00"));
+        assert!(!is_valid_date("2026-02-30"));
+        assert!(!is_valid_date("2026-13-01"));
     }
 
     #[test]

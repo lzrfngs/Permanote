@@ -10,8 +10,30 @@ _Newest version first. Drop raw notes in the Inbox; I process them into the next
 
 _Add new notes/requests here as bullets. They get processed into a version below, then cleared._
 
+- Left-justify the titles of permanotes in the Permanote panel.
 -
--
+
+---
+
+## v0.2.2 — Native app hardening loop
+
+Validation floor
+- [x] Restored clean frontend validation: fixed the Tiptap/DOM `Node` type collision in `permanote-node.ts`, aligned slash-command renderer types with Tiptap Suggestion props, added the missing Node type package, and removed the obsolete Vite `@ts-expect-error`.
+- [x] Verified `npm run check` is clean with 0 errors / 0 warnings.
+- [x] Verified `npm run build` completes. Known build warning remains: the main Svelte page chunk is >500 kB because `+page.svelte` still owns most of the app.
+
+Safety hardening
+- [x] Removed remaining mutex poison panic paths in app settings and Tauri day snapshot handling. These now recover the inner value, matching the existing index/watcher pattern.
+- [x] Tightened day-file validation: date inputs and scanned day filenames now require exact `YYYY-MM-DD` shape and a real calendar date. Invalid dates like `2026-02-30` and `2026-13-01` are rejected.
+- [x] Applied safe npm dependency audit fixes. Production dependency audit now reports 0 vulnerabilities.
+- [x] Verified Rust with `cargo check` and `cargo test` (17 tests passing).
+
+Loop scope note
+- [x] Website/landing files were intentionally ignored. This loop targeted the native app only: `src/`, `src-tauri/`, app config, package metadata, and this DEV memory.
+
+### Still open
+- [ ] Split the large `src/routes/+page.svelte` surface into smaller app modules/components. The current build works, but the bundle warning and 3000+ line file are now the clearest maintainability risk.
+- [ ] Add focused tests around strict date rejection and command error surfacing from the Tauri boundary if the app grows a command-level test harness.
 
 ---
 

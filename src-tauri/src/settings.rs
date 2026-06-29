@@ -49,14 +49,17 @@ fn load_from_disk() -> Settings {
 }
 
 pub fn get() -> Settings {
-    cache().lock().unwrap().clone()
+    cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 pub fn save(new: Settings) -> Result<(), String> {
     let path = settings_path()?;
     let json = serde_json::to_string_pretty(&new).map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| e.to_string())?;
-    *cache().lock().unwrap() = new;
+    *cache().lock().unwrap_or_else(|e| e.into_inner()) = new;
     Ok(())
 }
 

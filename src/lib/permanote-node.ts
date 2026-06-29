@@ -7,7 +7,7 @@
 //   ...content...
 //   %%permanote-end id=8c1d%%
 
-import { Node, mergeAttributes } from "@tiptap/core";
+import { Node as TiptapNode, mergeAttributes } from "@tiptap/core";
 
 export interface PermanoteAttrs {
   id: string;
@@ -31,7 +31,7 @@ declare module "@tiptap/core" {
   }
 }
 
-export const Permanote = Node.create({
+export const Permanote = TiptapNode.create({
   name: "permanote",
   group: "block",
   content: "block+",
@@ -141,7 +141,9 @@ export const Permanote = Node.create({
         document.removeEventListener("mousedown", onOutside, true);
       };
       const onOutside = (e: MouseEvent) => {
-        if (!swatchWrap.contains(e.target as Node)) closePopover();
+        if (e.target instanceof globalThis.Node && !swatchWrap.contains(e.target)) {
+          closePopover();
+        }
       };
       swatch.addEventListener("mousedown", (e) => {
         e.preventDefault();
@@ -216,7 +218,7 @@ export const Permanote = Node.create({
         },
         stopEvent(event: Event) {
           // Keep clicks/keys inside the head from being interpreted as editor input.
-          return head.contains(event.target as Node);
+          return event.target instanceof globalThis.Node && head.contains(event.target);
         },
       };
     };

@@ -26,7 +26,7 @@ fn read_day(date: String, state: State<'_, AppState>) -> Result<String, String> 
     state
         .snapshots
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .insert(date.clone(), content.clone());
     Ok(content)
 }
@@ -45,7 +45,7 @@ fn write_day(
     state
         .snapshots
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .insert(date.clone(), stored);
     Ok(())
 }
@@ -100,7 +100,7 @@ fn set_todo_state(
         state
             .snapshots
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(date.clone(), stored);
     }
     Ok(())
@@ -119,7 +119,7 @@ fn set_todo_due(
         state
             .snapshots
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(date.clone(), stored);
     }
     Ok(())
@@ -149,9 +149,11 @@ fn write_permanote(
     if let Ok(p) = vault::read_permanote(&id) {
         if !p.source_day.is_empty() {
             if let Ok(day_body) = vault::read_day(&p.source_day) {
-                if let Ok(mut snaps) = state.snapshots.lock() {
-                    snaps.insert(p.source_day.clone(), day_body);
-                }
+                state
+                    .snapshots
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(p.source_day.clone(), day_body);
             }
         }
     }
@@ -168,9 +170,11 @@ fn delete_permanote(id: String, state: State<'_, AppState>) -> Result<(), String
     vault::delete_permanote(&id)?;
     if let Some(day) = source_day {
         if let Ok(day_body) = vault::read_day(&day) {
-            if let Ok(mut snaps) = state.snapshots.lock() {
-                snaps.insert(day, day_body);
-            }
+            state
+                .snapshots
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(day, day_body);
         }
     }
     let _ = state.index.rebuild();
