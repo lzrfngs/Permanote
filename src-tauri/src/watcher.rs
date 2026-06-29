@@ -76,7 +76,14 @@ pub fn start(app: AppHandle, snapshots: Snapshots) -> Result<RecommendedWatcher,
                     };
                     handled.insert(p.clone());
 
-                    let content = std::fs::read_to_string(&p).unwrap_or_default();
+                    if !p.exists() {
+                        continue;
+                    }
+                    let raw = match std::fs::read_to_string(&p) {
+                        Ok(content) => content,
+                        Err(_) => continue,
+                    };
+                    let content = vault::normalize_lf(&raw).into_owned();
                     let mut snaps = snapshots.lock().unwrap_or_else(|e| e.into_inner());
                     let prev = snaps.get(&date).cloned();
                     if prev.as_deref() == Some(content.as_str()) {

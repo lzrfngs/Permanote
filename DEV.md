@@ -15,6 +15,21 @@ _Add new notes/requests here as bullets. They get processed into a version below
 
 ---
 
+## v0.2.4 - OneDrive watcher conflict fix
+
+Bug fix
+- [x] Fixed noisy "This day was changed on another device" banners caused by OneDrive echoing the app's own saves back through the file watcher.
+- [x] The app now snapshots the exact canonical content it expects before writing a day file, so a fast watcher event from the same save is treated as a self-write.
+- [x] Watcher reads now normalize CRLF/lone-CR line endings before comparing against snapshots, so OneDrive/Notepad line-ending churn does not look like a real external edit.
+- [x] Watcher skips transient missing files during rename/sync bursts instead of treating them as empty external changes.
+
+Validation
+- [x] Added a Rust regression test for canonical day content: CRLF normalization plus task-id injection.
+- [x] Verified `npm run check`, `npm run build`, `npm audit --omit=dev`, `cargo check`, and `cargo test` (18 tests passing).
+- [x] Prepared patch app release `0.2.3` / tag `v0.2.3`.
+
+---
+
 ## v0.2.3 - Page refactor loop, slice 1
 
 Maintainability

@@ -98,12 +98,16 @@ pub fn read_day(date: &str) -> Result<String, String> {
 /// tasks come back with an id attached.
 pub fn write_day(date: &str, content: &str) -> Result<(), String> {
     let path = day_path(date)?;
-    let injected = inject_todo_ids(content);
+    let injected = canonical_day_content(content);
     write_atomic(&path, &injected)?;
     // Mirror every fenced permanote into permanotes/{id}.md so the library
     // exists as discrete files on disk.
     let _ = sync_permanote_files_from_day(date, &injected);
     Ok(())
+}
+
+pub fn canonical_day_content(content: &str) -> String {
+    inject_todo_ids(normalize_lf(content).as_ref())
 }
 
 pub fn permanotes_dir() -> Result<PathBuf, String> {
@@ -192,7 +196,7 @@ fn unescape_yaml(s: &str) -> String {
 /// fence parsing can assume `\n`. The app always writes LF, so a CRLF file
 /// edited externally (OneDrive, Notepad) reconciles cleanly on the next save.
 /// Returns a borrow when the input is already LF-only.
-fn normalize_lf(s: &str) -> std::borrow::Cow<'_, str> {
+pub(crate) fn normalize_lf(s: &str) -> std::borrow::Cow<'_, str> {
     if s.contains('\r') {
         std::borrow::Cow::Owned(s.replace("\r\n", "\n").replace('\r', "\n"))
     } else {
@@ -1212,6 +1216,14 @@ mod tests {
         assert!(done);
         assert!(id.is_empty());
         assert_eq!(text, "done thing");
+    }
+
+    #[test]
+    fn canonical_day_content_normalizes_line_endings_and_injects_task_ids() {
+        let out = canonical_day_content("---\r\ndate: 2026-06-28\r\n---\r\n\r\n- [ ] write test\r\n");
+        assert!(!out.contains('\r'));
+        assert!(out.contains("- [ ] ^t-"));
+        assert!(out.ends_with('\n'));
     }
 
     #[test]

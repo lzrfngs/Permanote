@@ -37,10 +37,15 @@ fn write_day(
     content: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let stored = vault::canonical_day_content(&content);
+    // Snapshot the exact content we expect before writing. OneDrive can echo
+    // our own rename/modify events back faster than this command returns.
+    state
+        .snapshots
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(date.clone(), stored.clone());
     vault::write_day(&date, &content)?;
-    // Re-read so we index the id-injected canonical form on disk, not the
-    // version the editor sent (which can lack `^t-XXXX` for new tasks).
-    let stored = vault::read_day(&date).unwrap_or(content);
     let _ = state.index.index_day(&date, &stored);
     state
         .snapshots
