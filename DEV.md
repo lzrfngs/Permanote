@@ -31,6 +31,7 @@ Safety checks
 
 Notes
 - [x] Website/landing files stayed out of scope and remain untouched by this app loop.
+- [x] Release prepared as app version `0.2.2` / tag `v0.2.2` after validation. This is the safe checkpoint before deeper Todo/Permanote/settings panel extraction.
 - [ ] Continue refactor with larger stateful panels next: Todo panel, Permanote panel, then settings/permanote detail. Keep these as separate slices because they own more app state.
 
 ---
